@@ -33,6 +33,7 @@ object Settings {
 
     const val PREF_FIRST_APP_LAUNCH = "FirstApplicationLaunch"
     const val PREF_MEMORY_WARNING_SHOWN = "MemoryWarningShown"
+    const val PREF_CUSTOM_STORAGE_PATH = "CustomStoragePath"
 
     // Deprecated input overlay preference keys
     const val PREF_CONTROL_SCALE = "controlScale"

@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2023 yuzu Emulator Project
+// SPDX-FileCopyrightText: 2025 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package org.citron.citron_emu.fragments
@@ -44,6 +45,7 @@ import org.citron.citron_emu.utils.FileUtil
 import org.citron.citron_emu.utils.GpuDriverHelper
 import org.citron.citron_emu.utils.Log
 import org.citron.citron_emu.utils.ViewUtils.updateMargins
+import org.citron.citron_emu.utils.collect
 
 class HomeSettingsFragment : Fragment() {
     private var _binding: FragmentHomeSettingsBinding? = null
@@ -211,6 +213,14 @@ class HomeSettingsFragment : Fragment() {
             )
             add(
                 HomeSetting(
+                    R.string.change_storage_location,
+                    R.string.change_storage_location_description,
+                    R.drawable.ic_install,
+                    { openStorageLocationPicker() }
+                )
+            )
+            add(
+                HomeSetting(
                     R.string.preferences_theme,
                     R.string.theme_and_color_description,
                     R.drawable.ic_palette,
@@ -261,6 +271,22 @@ class HomeSettingsFragment : Fragment() {
                 viewLifecycleOwner,
                 optionsList
             )
+        }
+
+        // Listen for storage location changes
+        homeViewModel.storageLocationChanged.collect(viewLifecycleOwner, resetState = {
+            homeViewModel.setStorageLocationChanged(false)
+        }) {
+            if (it) {
+                MessageDialogFragment.newInstance(
+                    titleId = R.string.restart_required,
+                    descriptionId = R.string.restart_required_description,
+                    positiveAction = {
+                        // Kill the entire app process to ensure clean restart
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
+                ).show(parentFragmentManager, MessageDialogFragment.TAG)
+            }
         }
 
         setInsets()
@@ -366,6 +392,11 @@ class HomeSettingsFragment : Fragment() {
             }
             notify(0, builder.build())
         }
+    }
+
+    private fun openStorageLocationPicker() {
+        StoragePickerDialogFragment.newInstance()
+            .show(parentFragmentManager, StoragePickerDialogFragment.TAG)
     }
 
     // Share the current log if we just returned from a game but share the old log

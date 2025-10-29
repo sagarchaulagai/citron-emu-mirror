@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2023 yuzu Emulator Project
+// SPDX-FileCopyrightText: 2025 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package org.citron.citron_emu.fragments
@@ -80,6 +81,9 @@ class SetupFragment : Fragment() {
 
         homeViewModel.setNavigationVisibility(visible = false, animated = false)
 
+        // Reset state flows to prevent stale values from triggering callbacks
+        homeViewModel.setStorageLocationChanged(false)
+
         requireActivity().onBackPressedDispatcher.addCallback(
             viewLifecycleOwner,
             object : OnBackPressedCallback(true) {
@@ -108,6 +112,37 @@ class SetupFragment : Fragment() {
                     R.string.get_started,
                     { pageForward() },
                     false
+                )
+            )
+
+            add(
+                SetupPage(
+                    R.drawable.ic_folder_open,
+                    R.string.storage_location,
+                    R.string.storage_location_description,
+                    R.drawable.ic_add,
+                    true,
+                    R.string.select_storage_location,
+                    {
+                        storageCallback = it
+                        StoragePickerDialogFragment.newInstance()
+                            .show(childFragmentManager, StoragePickerDialogFragment.TAG)
+                    },
+                    false,
+                    0,
+                    0,
+                    0,
+                    {
+                        // Check if user has selected a storage location
+                        // If no custom path is set, treat as incomplete (but skippable)
+                        val preferences = PreferenceManager.getDefaultSharedPreferences(CitronApplication.appContext)
+                        val hasCustomPath = preferences.contains(Settings.PREF_CUSTOM_STORAGE_PATH)
+                        if (hasCustomPath) {
+                            StepState.COMPLETE
+                        } else {
+                            StepState.UNDEFINED
+                        }
+                    }
                 )
             )
 
@@ -214,6 +249,14 @@ class SetupFragment : Fragment() {
             viewLifecycleOwner,
             resetState = { homeViewModel.setGamesDirSelected(false) }
         ) { if (it) gamesDirCallback.onStepCompleted() }
+        homeViewModel.storageLocationChanged.collect(
+            viewLifecycleOwner,
+            resetState = { homeViewModel.setStorageLocationChanged(false) }
+        ) {
+            if (it && ::storageCallback.isInitialized) {
+                storageCallback.onStepCompleted()
+            }
+        }
 
         binding.viewPager2.apply {
             adapter = SetupAdapter(requireActivity() as AppCompatActivity, pages)
@@ -332,6 +375,8 @@ class SetupFragment : Fragment() {
                 }
             }
         }
+
+    private lateinit var storageCallback: SetupCallback
 
     private lateinit var gamesDirCallback: SetupCallback
 

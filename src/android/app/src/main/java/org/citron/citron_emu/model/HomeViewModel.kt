@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2023 yuzu Emulator Project
+// SPDX-FileCopyrightText: 2025 citron Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package org.citron.citron_emu.model
@@ -33,6 +34,9 @@ class HomeViewModel : ViewModel() {
 
     private val _checkKeys = MutableStateFlow(false)
     val checkKeys = _checkKeys.asStateFlow()
+
+    private val _storageLocationChanged = MutableStateFlow(false)
+    val storageLocationChanged get() = _storageLocationChanged.asStateFlow()
 
     var navigatedToSetup = false
 
@@ -72,5 +76,9 @@ class HomeViewModel : ViewModel() {
 
     fun setCheckKeys(value: Boolean) {
         _checkKeys.value = value
+    }
+
+    fun setStorageLocationChanged(changed: Boolean) {
+        _storageLocationChanged.value = changed
     }
 }

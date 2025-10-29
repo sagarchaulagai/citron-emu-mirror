@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2023 yuzu Emulator Project
+// SPDX-FileCopyrightText: 2025 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package org.citron.citron_emu.utils
@@ -38,10 +39,43 @@ object DirectoryInitialization {
 
     private fun initializeInternalStorage() {
         try {
+            val preferences = PreferenceManager.getDefaultSharedPreferences(CitronApplication.appContext)
+            val customPath = preferences.getString(Settings.PREF_CUSTOM_STORAGE_PATH, null)
+
+            android.util.Log.d("DirectoryInit", "Custom path from preferences: $customPath")
+
+            userPath = if (!customPath.isNullOrEmpty()) {
+                // Check if it's a content:// URI (from SAF) or a direct file path
+                if (customPath.startsWith("content://")) {
+                    // For SAF URIs, we cannot use them directly with native code
+                    // Fall back to default location
+                    android.util.Log.w("DirectoryInit", "Content URI detected, falling back to default")
+                    CitronApplication.appContext.getExternalFilesDir(null)!!.canonicalPath
+                } else {
+                    // Direct file path - ensure the directory exists
+                    val dir = java.io.File(customPath)
+                    if (!dir.exists()) {
+                        android.util.Log.d("DirectoryInit", "Creating directory: $customPath")
+                        dir.mkdirs()
+                    }
+                    android.util.Log.i("DirectoryInit", "Using custom path: $customPath")
+                    customPath
+                }
+            } else {
+                // Default location
+                val defaultPath = CitronApplication.appContext.getExternalFilesDir(null)!!.canonicalPath
+                android.util.Log.i("DirectoryInit", "Using default path: $defaultPath")
+                defaultPath
+            }
+
+            android.util.Log.i("DirectoryInit", "Final user path: $userPath")
+            NativeLibrary.setAppDirectory(userPath!!)
+        } catch (e: Exception) {
+            android.util.Log.e("DirectoryInit", "Error initializing storage", e)
+            e.printStackTrace()
+            // Fall back to default on any error
             userPath = CitronApplication.appContext.getExternalFilesDir(null)!!.canonicalPath
             NativeLibrary.setAppDirectory(userPath!!)
-        } catch (e: IOException) {
-            e.printStackTrace()
         }
     }
 
