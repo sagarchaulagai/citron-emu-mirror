@@ -54,8 +54,10 @@ using VideoCommon::FileEnvironment;
 using VideoCommon::GenericEnvironment;
 using VideoCommon::GraphicsEnvironment;
 
+// Cache version is bumped when emulating 8/16-bit storage to avoid loading incompatible shaders
 constexpr u32 CACHE_VERSION = 11;
-constexpr std::array<char, 8> VULKAN_CACHE_MAGIC_NUMBER{'y', 'u', 'z', 'u', 'v', 'k', 'c', 'h'};
+constexpr u32 CACHE_VERSION_EMULATED_STORAGE = 13; // Bumped for int64 lowering fix
+constexpr std::array<char, 8> VULKAN_CACHE_MAGIC_NUMBER{'c', 'i', 't', 'r', 'o', 'n', 'v', 'k'};
 
 template <typename Container>
 auto MakeSpan(Container& container) {
@@ -321,8 +323,11 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
         .supported_spirv = device.SupportedSpirvVersion(),
         .unified_descriptor_binding = true,
         .support_descriptor_aliasing = device.IsDescriptorAliasingSupported(),
-        .support_int8 = device.IsInt8Supported(),
-        .support_int16 = device.IsShaderInt16Supported(),
+        // Force int8/int16 emulation when storage buffer support is missing
+        // Even if shader int8/int16 is supported, we need storage buffer support for buffer operations
+        .support_int8 = device.Is8BitStorageSupported(),
+        .support_int16 = device.Is16BitStorageSupported(),
+        // Int64 support is independent of 8/16-bit storage - only check native capability
         .support_int64 = device.IsShaderInt64Supported(),
         .support_vertex_instance_id = false,
         .support_float_controls = device.IsKhrShaderFloatControlsSupported(),
@@ -383,7 +388,10 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
     host_info = Shader::HostTranslateInfo{
         .support_float64 = device.IsFloat64Supported(),
         .support_float16 = device.IsFloat16Supported(),
-        .support_int64 = device.IsShaderInt64Supported(),
+        // Disable int64 support when emulating storage to ensure proper lowering
+        .support_int64 = device.IsShaderInt64Supported() &&
+                        device.Is8BitStorageSupported() &&
+                        device.Is16BitStorageSupported(),
         .needs_demote_reorder = driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
                                 driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
                                 driver_id == VK_DRIVER_ID_SAMSUNG_PROPRIETARY,
@@ -421,8 +429,11 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
 
 PipelineCache::~PipelineCache() {
     if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
+        const u32 cache_ver = (!device.Is8BitStorageSupported() || !device.Is16BitStorageSupported())
+                                  ? CACHE_VERSION_EMULATED_STORAGE
+                                  : CACHE_VERSION;
         SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
-                                     CACHE_VERSION);
+                                     cache_ver);
     }
 }
 
@@ -482,8 +493,12 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 
     if (use_vulkan_pipeline_cache) {
         vulkan_pipeline_cache_filename = base_dir / "vulkan_pipelines.bin";
+        // Use different cache version when emulating 8/16-bit storage to avoid loading invalid shaders
+        const u32 cache_ver = (!device.Is8BitStorageSupported() || !device.Is16BitStorageSupported())
+                                  ? CACHE_VERSION_EMULATED_STORAGE
+                                  : CACHE_VERSION;
         vulkan_pipeline_cache =
-            LoadVulkanPipelineCache(vulkan_pipeline_cache_filename, CACHE_VERSION);
+            LoadVulkanPipelineCache(vulkan_pipeline_cache_filename, cache_ver);
     }
 
     struct {
@@ -556,7 +571,11 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         ++state.total;
         ++state.total_graphics;
     }};
-    VideoCommon::LoadPipelines(stop_loading, pipeline_cache_filename, CACHE_VERSION, load_compute,
+    // Use different cache version when emulating 8/16-bit storage
+    const u32 cache_ver = (!device.Is8BitStorageSupported() || !device.Is16BitStorageSupported())
+                              ? CACHE_VERSION_EMULATED_STORAGE
+                              : CACHE_VERSION;
+    VideoCommon::LoadPipelines(stop_loading, pipeline_cache_filename, cache_ver, load_compute,
                                load_graphics);
 
     LOG_INFO(Render_Vulkan, "Total Pipeline Count: {}", state.total);
@@ -579,8 +598,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     workers.WaitForRequests(stop_loading);
 
     if (use_vulkan_pipeline_cache) {
+        // Reuse cache_ver from above (already declared at line 571)
         SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
-                                     CACHE_VERSION);
+                                     cache_ver);
     }
 
     if (state.statistics) {
@@ -622,6 +642,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     bool build_in_parallel) try {
     auto hash = key.Hash();
     LOG_INFO(Render_Vulkan, "0x{:016x}", hash);
+    LOG_INFO(Render_Vulkan, "Creating graphics pipeline with {} stages", envs.size());
     size_t env_index{0};
     std::array<Shader::IR::Program, Maxwell::MaxShaderProgram> programs;
     const bool uses_vertex_a{key.unique_hashes[0] != 0};
@@ -685,14 +706,20 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
 
         const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage)};
         ConvertLegacyToGeneric(program, runtime_info);
-        std::vector<u32> code = EmitSPIRV(profile, runtime_info, program, binding);
-        // Reserve more space for Insane mode to reduce allocations during shader compilation
-        const size_t reserve_size = Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Insane
-                                        ? std::max<size_t>(code.size(), 64 * 1024 / sizeof(u32))  // 64KB for Insane mode
-                                        : std::max<size_t>(code.size(), 16 * 1024 / sizeof(u32)); // 16KB for other modes
-        code.reserve(reserve_size);
-        device.SaveShader(code);
-        modules[stage_index] = BuildShader(device, code);
+        try {
+            std::vector<u32> code = EmitSPIRV(profile, runtime_info, program, binding);
+            // Reserve more space for Insane mode to reduce allocations during shader compilation
+            const size_t reserve_size = Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Insane
+                                            ? std::max<size_t>(code.size(), 64 * 1024 / sizeof(u32))  // 64KB for Insane mode
+                                            : std::max<size_t>(code.size(), 16 * 1024 / sizeof(u32)); // 16KB for other modes
+            code.reserve(reserve_size);
+            device.SaveShader(code);
+            modules[stage_index] = BuildShader(device, code);
+        } catch (const std::exception& e) {
+            LOG_ERROR(Render_Vulkan, "Failed to compile shader stage {} for pipeline 0x{:016x}: {}",
+                      index, hash, e.what());
+            throw;
+        }
         if (device.HasDebuggingToolAttached()) {
             const std::string name{fmt::format("Shader {:016x}", key.unique_hashes[index])};
             modules[stage_index].SetObjectNameEXT(name.c_str());
@@ -741,7 +768,10 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
                 env_ptrs.push_back(&envs[index]);
             }
         }
-        SerializePipeline(key, env_ptrs, pipeline_cache_filename, CACHE_VERSION);
+        const u32 cache_ver = (!device.Is8BitStorageSupported() || !device.Is16BitStorageSupported())
+                                  ? CACHE_VERSION_EMULATED_STORAGE
+                                  : CACHE_VERSION;
+        SerializePipeline(key, env_ptrs, pipeline_cache_filename, cache_ver);
     });
     return pipeline;
 }
@@ -759,8 +789,11 @@ std::unique_ptr<ComputePipeline> PipelineCache::CreateComputePipeline(
         return pipeline;
     }
     serialization_thread.QueueWork([this, key, env_ = std::move(env)] {
+        const u32 cache_ver = (!device.Is8BitStorageSupported() || !device.Is16BitStorageSupported())
+                                  ? CACHE_VERSION_EMULATED_STORAGE
+                                  : CACHE_VERSION;
         SerializePipeline(key, std::array<const GenericEnvironment*, 1>{&env_},
-                          pipeline_cache_filename, CACHE_VERSION);
+                          pipeline_cache_filename, cache_ver);
     });
     return pipeline;
 }

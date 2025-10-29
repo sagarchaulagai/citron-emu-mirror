@@ -181,11 +181,118 @@ void ShiftRightArithmetic64To32(IR::Block& block, IR::Inst& inst) {
     inst.ReplaceUsesWith(ir.CompositeConstruct(ret_lo, ret_hi));
 }
 
+void ConvertF16U64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // Convert low 32-bits to F16, high bits ignored
+    const IR::F16 result = ir.ConvertUToF(16, 32, value_pair.first);
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertF32U64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // Convert low 32-bits to F32, high bits ignored
+    const IR::F32 result = ir.ConvertUToF(32, 32, value_pair.first);
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertF64U64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // Convert low 32-bits to F64, high bits ignored
+    const IR::F64 result = ir.ConvertUToF(64, 32, value_pair.first);
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertF16S64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // Convert low 32-bits to F16 as signed, high bits ignored
+    const IR::F16 result = ir.ConvertSToF(16, 32, value_pair.first);
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertF32S64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // Convert low 32-bits to F32 as signed, high bits ignored
+    const IR::F32 result = ir.ConvertSToF(32, 32, value_pair.first);
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertF64S64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // Convert low 32-bits to F64 as signed, high bits ignored
+    const IR::F64 result = ir.ConvertSToF(64, 32, value_pair.first);
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertU64U32To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const IR::U32 value{inst.Arg(0)};
+    // U32 to U64: zero-extend to U32x2
+    const IR::Value result = ir.CompositeConstruct(value, ir.Imm32(0));
+    inst.ReplaceUsesWith(result);
+}
+
+void ConvertU32U64To32(IR::Block& block, IR::Inst& inst) {
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const auto value_pair = Unpack(ir, inst.Arg(0));
+    // U64 to U32: take low 32-bits
+    inst.ReplaceUsesWith(value_pair.first);
+}
+
+void ConvertS64FTo32(IR::Block& block, IR::Inst& inst) {
+    // Float to S64: convert to S32 and sign-extend
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const IR::F16F32F64 value{inst.Arg(0)};
+    const IR::U32 low = ir.ConvertFToS(32, value);
+    const IR::U32 high = ir.ShiftRightArithmetic(low, ir.Imm32(31)); // Sign extend
+    inst.ReplaceUsesWith(ir.CompositeConstruct(low, high));
+}
+
+void ConvertU64FTo32(IR::Block& block, IR::Inst& inst) {
+    // Float to U64: convert to U32 and zero-extend
+    IR::IREmitter ir(block, IR::Block::InstructionList::s_iterator_to(inst));
+    const IR::F16F32F64 value{inst.Arg(0)};
+    const IR::U32 low = ir.ConvertFToU(32, value);
+    const IR::U32 high = ir.Imm32(0); // Zero extend
+    inst.ReplaceUsesWith(ir.CompositeConstruct(low, high));
+}
+
 void Lower(IR::Block& block, IR::Inst& inst) {
     switch (inst.GetOpcode()) {
     case IR::Opcode::PackUint2x32:
     case IR::Opcode::UnpackUint2x32:
         return inst.ReplaceOpcode(IR::Opcode::Identity);
+    // Conversion operations
+    case IR::Opcode::ConvertF16U64:
+        return ConvertF16U64To32(block, inst);
+    case IR::Opcode::ConvertF32U64:
+        return ConvertF32U64To32(block, inst);
+    case IR::Opcode::ConvertF64U64:
+        return ConvertF64U64To32(block, inst);
+    case IR::Opcode::ConvertF16S64:
+        return ConvertF16S64To32(block, inst);
+    case IR::Opcode::ConvertF32S64:
+        return ConvertF32S64To32(block, inst);
+    case IR::Opcode::ConvertF64S64:
+        return ConvertF64S64To32(block, inst);
+    case IR::Opcode::ConvertU64U32:
+        return ConvertU64U32To32(block, inst);
+    case IR::Opcode::ConvertU32U64:
+        return ConvertU32U64To32(block, inst);
+    case IR::Opcode::ConvertS64F16:
+    case IR::Opcode::ConvertS64F32:
+    case IR::Opcode::ConvertS64F64:
+        return ConvertS64FTo32(block, inst);
+    case IR::Opcode::ConvertU64F16:
+    case IR::Opcode::ConvertU64F32:
+    case IR::Opcode::ConvertU64F64:
+        return ConvertU64FTo32(block, inst);
+    // Arithmetic operations
     case IR::Opcode::IAdd64:
         return IAdd64To32(block, inst);
     case IR::Opcode::ISub64:
@@ -198,6 +305,7 @@ void Lower(IR::Block& block, IR::Inst& inst) {
         return ShiftRightLogical64To32(block, inst);
     case IR::Opcode::ShiftRightArithmetic64:
         return ShiftRightArithmetic64To32(block, inst);
+    // Atomic operations
     case IR::Opcode::SharedAtomicExchange64:
         return inst.ReplaceOpcode(IR::Opcode::SharedAtomicExchange32x2);
     case IR::Opcode::GlobalAtomicIAdd64:

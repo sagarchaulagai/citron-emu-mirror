@@ -28,7 +28,7 @@ std::pair<Id, Id> ExtractArgs(EmitContext& ctx, Id offset, u32 mask, u32 count) 
 } // Anonymous namespace
 
 Id EmitLoadSharedU8(EmitContext& ctx, Id offset) {
-    if (ctx.profile.support_explicit_workgroup_layout) {
+    if (ctx.profile.support_explicit_workgroup_layout && ctx.profile.support_int8) {
         const Id pointer{
             ctx.OpAccessChain(ctx.shared_u8, ctx.shared_memory_u8, ctx.u32_zero_value, offset)};
         return ctx.OpUConvert(ctx.U32[1], ctx.OpLoad(ctx.U8, pointer));
@@ -39,7 +39,7 @@ Id EmitLoadSharedU8(EmitContext& ctx, Id offset) {
 }
 
 Id EmitLoadSharedS8(EmitContext& ctx, Id offset) {
-    if (ctx.profile.support_explicit_workgroup_layout) {
+    if (ctx.profile.support_explicit_workgroup_layout && ctx.profile.support_int8) {
         const Id pointer{
             ctx.OpAccessChain(ctx.shared_u8, ctx.shared_memory_u8, ctx.u32_zero_value, offset)};
         return ctx.OpSConvert(ctx.U32[1], ctx.OpLoad(ctx.U8, pointer));
@@ -50,7 +50,7 @@ Id EmitLoadSharedS8(EmitContext& ctx, Id offset) {
 }
 
 Id EmitLoadSharedU16(EmitContext& ctx, Id offset) {
-    if (ctx.profile.support_explicit_workgroup_layout) {
+    if (ctx.profile.support_explicit_workgroup_layout && ctx.profile.support_int16) {
         const Id pointer{Pointer(ctx, ctx.shared_u16, ctx.shared_memory_u16, offset, 1)};
         return ctx.OpUConvert(ctx.U32[1], ctx.OpLoad(ctx.U16, pointer));
     } else {
@@ -60,7 +60,7 @@ Id EmitLoadSharedU16(EmitContext& ctx, Id offset) {
 }
 
 Id EmitLoadSharedS16(EmitContext& ctx, Id offset) {
-    if (ctx.profile.support_explicit_workgroup_layout) {
+    if (ctx.profile.support_explicit_workgroup_layout && ctx.profile.support_int16) {
         const Id pointer{Pointer(ctx, ctx.shared_u16, ctx.shared_memory_u16, offset, 1)};
         return ctx.OpSConvert(ctx.U32[1], ctx.OpLoad(ctx.U16, pointer));
     } else {
@@ -110,7 +110,7 @@ Id EmitLoadSharedU128(EmitContext& ctx, Id offset) {
 }
 
 void EmitWriteSharedU8(EmitContext& ctx, Id offset, Id value) {
-    if (ctx.profile.support_explicit_workgroup_layout) {
+    if (ctx.profile.support_explicit_workgroup_layout && ctx.profile.support_int8) {
         const Id pointer{
             ctx.OpAccessChain(ctx.shared_u8, ctx.shared_memory_u8, ctx.u32_zero_value, offset)};
         ctx.OpStore(pointer, ctx.OpUConvert(ctx.U8, value));
@@ -120,7 +120,7 @@ void EmitWriteSharedU8(EmitContext& ctx, Id offset, Id value) {
 }
 
 void EmitWriteSharedU16(EmitContext& ctx, Id offset, Id value) {
-    if (ctx.profile.support_explicit_workgroup_layout) {
+    if (ctx.profile.support_explicit_workgroup_layout && ctx.profile.support_int16) {
         const Id pointer{Pointer(ctx, ctx.shared_u16, ctx.shared_memory_u16, offset, 1)};
         ctx.OpStore(pointer, ctx.OpUConvert(ctx.U16, value));
     } else {

@@ -630,11 +630,12 @@ void EmitContext::DefineSharedMemory(const IR::Program& program) {
     if (profile.support_explicit_workgroup_layout) {
         AddExtension("SPV_KHR_workgroup_memory_explicit_layout");
         AddCapability(spv::Capability::WorkgroupMemoryExplicitLayoutKHR);
-        if (program.info.uses_int8) {
+        // Only add 8/16-bit workgroup capabilities if the device actually supports them
+        if (program.info.uses_int8 && profile.support_int8) {
             AddCapability(spv::Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
             std::tie(shared_memory_u8, shared_u8, std::ignore) = make(U8, 1);
         }
-        if (program.info.uses_int16) {
+        if (program.info.uses_int16 && profile.support_int16) {
             AddCapability(spv::Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
             std::tie(shared_memory_u16, shared_u16, std::ignore) = make(U16, 2);
         }

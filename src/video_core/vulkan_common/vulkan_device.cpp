@@ -499,7 +499,7 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     if (is_qualcomm) {
         must_emulate_scaled_formats = true;
 
-        LOG_INFO(Render_Vulkan, 
+        LOG_INFO(Render_Vulkan,
                  "Qualcomm Adreno drivers detected - enabling compatibility layer for extended dynamic state");
         enable_extended_dynamic_state_fallback = true;
         RemoveExtensionFeature(extensions.extended_dynamic_state, features.extended_dynamic_state,
@@ -509,7 +509,7 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
                  "Qualcomm Adreno drivers detected - enabling compatibility layer for push descriptors");
         enable_push_descriptor_fallback = true;
         RemoveExtension(extensions.push_descriptor, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
-        
+
         // Adreno driver compatibility for advanced shader features
         LOG_INFO(Render_Vulkan,
                  "Qualcomm Adreno drivers detected - enabling compatibility layer for advanced shader features");
@@ -520,6 +520,18 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         features.shader_atomic_int64.shaderBufferInt64Atomics = false;
         features.shader_atomic_int64.shaderSharedInt64Atomics = false;
         features.features.shaderInt64 = false;
+
+        // Check for 16-bit and 8-bit storage support
+        if (!features.bit16_storage.uniformAndStorageBuffer16BitAccess ||
+            !features.bit16_storage.storageBuffer16BitAccess) {
+            LOG_WARNING(Render_Vulkan,
+                        "Qualcomm Adreno driver missing 16-bit storage support - some games may have compatibility issues");
+        }
+        if (!features.bit8_storage.uniformAndStorageBuffer8BitAccess ||
+            !features.bit8_storage.storageBuffer8BitAccess) {
+            LOG_WARNING(Render_Vulkan,
+                        "Qualcomm Adreno driver missing 8-bit storage support - some games may have compatibility issues");
+        }
 
         // Log detection of modern Adreno GPUs
         if (is_adreno8xx) {
@@ -555,14 +567,14 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     if (is_arm) {
         must_emulate_scaled_formats = true;
 
-        LOG_INFO(Render_Vulkan, 
+        LOG_INFO(Render_Vulkan,
                  "ARM Mali drivers detected - enabling compatibility layer for extended dynamic state");
         enable_extended_dynamic_state_fallback = true;
         RemoveExtensionFeature(extensions.extended_dynamic_state, features.extended_dynamic_state,
                                VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
-        
+
         // Mali driver compatibility for advanced shader features
-        LOG_INFO(Render_Vulkan, 
+        LOG_INFO(Render_Vulkan,
                  "ARM Mali drivers detected - enabling compatibility layer for advanced shader features");
         enable_shader_int64_fallback = true;
         RemoveExtensionFeature(extensions.shader_atomic_int64, features.shader_atomic_int64,
@@ -570,31 +582,31 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         features.shader_atomic_int64.shaderBufferInt64Atomics = false;
         features.shader_atomic_int64.shaderSharedInt64Atomics = false;
         features.features.shaderInt64 = false;
-        
+
         LOG_INFO(Render_Vulkan, "ARM Mali drivers detected - enabling compatibility layer for custom border colors");
         enable_custom_border_color_fallback = true;
         RemoveExtensionFeature(extensions.custom_border_color, features.custom_border_color,
                                VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
     }
-    
+
     // Samsung Xclipse driver compatibility layer
     const bool is_xclipse = driver_id == VK_DRIVER_ID_SAMSUNG_PROPRIETARY;
     if (is_xclipse) {
         must_emulate_scaled_formats = true;
-        
-        LOG_INFO(Render_Vulkan, 
+
+        LOG_INFO(Render_Vulkan,
                  "Samsung Xclipse drivers detected - enabling compatibility layer for extended dynamic state");
         enable_extended_dynamic_state_fallback = true;
         RemoveExtensionFeature(extensions.extended_dynamic_state, features.extended_dynamic_state,
                                VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
-        
+
         // Xclipse driver compatibility (AMD RDNA2-based with Samsung driver quirks)
-        LOG_INFO(Render_Vulkan, 
+        LOG_INFO(Render_Vulkan,
                  "Samsung Xclipse drivers detected - enabling comprehensive compatibility layer");
-        
+
         // Compatibility layer for shader float controls (causes compilation issues)
         RemoveExtension(extensions.shader_float_controls, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
-        
+
         // Compatibility layer for 64-bit integer operations
         enable_shader_int64_fallback = true;
         RemoveExtensionFeature(extensions.shader_atomic_int64, features.shader_atomic_int64,
@@ -602,12 +614,12 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         features.shader_atomic_int64.shaderBufferInt64Atomics = false;
         features.shader_atomic_int64.shaderSharedInt64Atomics = false;
         features.features.shaderInt64 = false;
-        
+
         // Compatibility layer for custom border colors
         enable_custom_border_color_fallback = true;
         RemoveExtensionFeature(extensions.custom_border_color, features.custom_border_color,
                                VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
-        
+
         // Compatibility layer for push descriptors
         enable_push_descriptor_fallback = true;
         RemoveExtension(extensions.push_descriptor, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
@@ -1330,12 +1342,18 @@ void Device::RemoveUnsuitableExtensions() {
     }
 
     // VK_KHR_workgroup_memory_explicit_layout
+    // This extension requires 8-bit and 16-bit storage support, so disable it on stock drivers
     extensions.workgroup_memory_explicit_layout =
         features.features.shaderInt16 &&
         features.workgroup_memory_explicit_layout.workgroupMemoryExplicitLayout &&
         features.workgroup_memory_explicit_layout.workgroupMemoryExplicitLayout8BitAccess &&
         features.workgroup_memory_explicit_layout.workgroupMemoryExplicitLayout16BitAccess &&
-        features.workgroup_memory_explicit_layout.workgroupMemoryExplicitLayoutScalarBlockLayout;
+        features.workgroup_memory_explicit_layout.workgroupMemoryExplicitLayoutScalarBlockLayout &&
+        // Also require storage buffer 8/16-bit support since the extension needs them
+        features.bit8_storage.storageBuffer8BitAccess &&
+        features.bit8_storage.uniformAndStorageBuffer8BitAccess &&
+        features.bit16_storage.storageBuffer16BitAccess &&
+        features.bit16_storage.uniformAndStorageBuffer16BitAccess;
     RemoveExtensionFeatureIfUnsuitable(extensions.workgroup_memory_explicit_layout,
                                        features.workgroup_memory_explicit_layout,
                                        VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME);
