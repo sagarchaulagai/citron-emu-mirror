@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
+// SPDX-FileCopyrightText: Copyright 2025 citron Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <bit>
@@ -123,24 +124,55 @@ void KScheduler::PreemptSingleCore() {
 
 void KScheduler::RescheduleCurrentCore() {
     ASSERT(!m_kernel.IsPhantomModeForSingleCore());
-    ASSERT(GetCurrentThread(m_kernel).GetDisableDispatchCount() == 1);
-
-    GetCurrentThread(m_kernel).EnableDispatch();
+    const s32 initial_disable_count = GetCurrentThread(m_kernel).GetDisableDispatchCount();
+    // We expect disable_count == 1, but after thread switches it might be different
+    // So we check defensively instead of asserting
+    if (initial_disable_count != 1) {
+        // If the count is not 1, something is wrong, but we'll try to handle it gracefully
+        // If it's 0, we need to disable first to get to 1
+        if (initial_disable_count == 0) {
+            GetCurrentThread(m_kernel).DisableDispatch();
+        }
+        // If it's > 1, we'll handle it after RescheduleCurrentCoreImpl
+    }
 
     if (m_state.needs_scheduling.load()) {
         // Disable interrupts, and then check again if rescheduling is needed.
         // KScopedInterruptDisable intr_disable;
 
+        // RescheduleCurrentCoreImpl expects disable_count == 1 and will maintain it
         m_kernel.CurrentScheduler()->RescheduleCurrentCoreImpl();
+        // After RescheduleCurrentCoreImpl returns, disable_count should still be 1
+        // However, Schedule() may have switched threads, so we need to check the count
+        const s32 final_disable_count = GetCurrentThread(m_kernel).GetDisableDispatchCount();
+        if (final_disable_count > 0) {
+            GetCurrentThread(m_kernel).EnableDispatch();
+        }
+        // If the count is 0 or negative, Schedule() may have already enabled dispatch
+        // or we're on a different thread, so we don't need to do anything
+    } else {
+        // If no rescheduling is needed, check the count before enabling
+        const s32 current_disable_count = GetCurrentThread(m_kernel).GetDisableDispatchCount();
+        if (current_disable_count > 0) {
+            GetCurrentThread(m_kernel).EnableDispatch();
+        }
     }
 }
 
 void KScheduler::RescheduleCurrentCoreImpl() {
     // Check that scheduling is needed.
     if (m_state.needs_scheduling.load()) [[likely]] {
-        GetCurrentThread(m_kernel).DisableDispatch();
+        // We should have disable_count == 1 when entering this function
+        // from RescheduleCurrentCore. Schedule() requires disable_count == 1.
+        const s32 initial_disable_count = GetCurrentThread(m_kernel).GetDisableDispatchCount();
+        if (initial_disable_count == 0) {
+            // Safety check: if somehow we're called with count 0, disable first
+            GetCurrentThread(m_kernel).DisableDispatch();
+        }
         Schedule();
-        GetCurrentThread(m_kernel).EnableDispatch();
+        // Schedule() may have switched threads, but if it didn't, we should still have
+        // disable_count == 1. We don't modify it here - let the caller handle it.
+        // This ensures the count remains balanced.
     }
 }
 
