@@ -690,12 +690,17 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass) {
         .depthBiasSlopeFactor = 0.0f,
         .lineWidth = 1.0f,
     };
+    // Determine line rasterization mode based on available features
+    VkLineRasterizationModeEXT line_mode = VK_LINE_RASTERIZATION_MODE_DEFAULT_EXT;
+    if (key.state.smooth_lines != 0 && device.IsSmoothLinesSupported()) {
+        line_mode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_EXT;
+    } else if (device.IsRectangularLinesSupported()) {
+        line_mode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_EXT;
+    }
     VkPipelineRasterizationLineStateCreateInfoEXT line_state{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT,
         .pNext = nullptr,
-        .lineRasterizationMode = key.state.smooth_lines != 0
-                                     ? VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_EXT
-                                     : VK_LINE_RASTERIZATION_MODE_RECTANGULAR_EXT,
+        .lineRasterizationMode = line_mode,
         .stippledLineEnable = VK_FALSE, // TODO
         .lineStippleFactor = 0,
         .lineStipplePattern = 0,
