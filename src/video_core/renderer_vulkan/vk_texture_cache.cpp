@@ -167,6 +167,32 @@ constexpr VkBorderColor ConvertBorderColor(const std::array<float, 4>& color) {
         return vk::Image{};
     }
     VkImageCreateInfo image_ci = MakeImageCreateInfo(device, info);
+
+    // Validate image dimensions against GPU limits
+    const auto& limits = device.GetPhysical().GetProperties().limits;
+    const u32 max_dimension = limits.maxImageDimension2D;
+    const u32 max_fb_width = limits.maxFramebufferWidth;
+    const u32 max_fb_height = limits.maxFramebufferHeight;
+
+    if (image_ci.extent.width > max_dimension || image_ci.extent.height > max_dimension) {
+        LOG_WARNING(Render_Vulkan,
+                    "Image dimensions {}x{} exceed GPU max 2D dimension {}. Clamping.",
+                    image_ci.extent.width, image_ci.extent.height, max_dimension);
+        image_ci.extent.width = std::min(image_ci.extent.width, max_dimension);
+        image_ci.extent.height = std::min(image_ci.extent.height, max_dimension);
+    }
+
+    // Check framebuffer limits if this image might be used as attachment
+    if ((image_ci.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) != 0) {
+        if (image_ci.extent.width > max_fb_width || image_ci.extent.height > max_fb_height) {
+            LOG_WARNING(Render_Vulkan,
+                        "Framebuffer image dimensions {}x{} exceed GPU limits {}x{}. Clamping.",
+                        image_ci.extent.width, image_ci.extent.height, max_fb_width, max_fb_height);
+            image_ci.extent.width = std::min(image_ci.extent.width, max_fb_width);
+            image_ci.extent.height = std::min(image_ci.extent.height, max_fb_height);
+        }
+    }
     const VkImageFormatListCreateInfo image_format_list = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO,
         .pNext = nullptr,
@@ -1526,6 +1552,23 @@ void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
     }
     scheduler->RequestOutsideRenderPassOperationContext();
     auto vk_copies = TransformBufferImageCopies(copies, offset, aspect_mask);
+
+    // Clamp copy extents to GPU limits to handle oversized textures
+    // This is needed because the source data may request dimensions larger than the GPU supports
+    const auto& limits = runtime->device.GetPhysical().GetProperties().limits;
+    const u32 max_dimension = limits.maxImageDimension2D;
+    for (auto& copy : vk_copies) {
+        if (copy.imageExtent.width > max_dimension || copy.imageExtent.height > max_dimension) {
+            LOG_WARNING(Render_Vulkan,
+                        "Clamping buffer-to-image copy extent from {}x{} to {}x{}",
+                        copy.imageExtent.width, copy.imageExtent.height,
+                        std::min(copy.imageExtent.width, max_dimension),
+                        std::min(copy.imageExtent.height, max_dimension));
+            copy.imageExtent.width = std::min(copy.imageExtent.width, max_dimension);
+            copy.imageExtent.height = std::min(copy.imageExtent.height, max_dimension);
+        }
+    }
+
     const VkBuffer src_buffer = buffer;
     const VkImage vk_image = *original_image;
     const VkImageAspectFlags vk_aspect_mask = aspect_mask;
