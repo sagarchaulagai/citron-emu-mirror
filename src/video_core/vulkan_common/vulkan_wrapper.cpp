@@ -203,6 +203,7 @@ void Load(VkDevice device, DeviceDispatch& dld) noexcept {
     X(vkFreeDescriptorSets);
     X(vkFreeMemory);
     X(vkGetBufferMemoryRequirements2);
+    X(vkGetBufferDeviceAddress);  // For NVN-style global memory (NVNbufferAddress)
     X(vkGetDeviceQueue);
     X(vkGetEventStatus);
     X(vkGetFenceStatus);

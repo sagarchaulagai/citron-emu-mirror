@@ -745,8 +745,25 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     functions.vkGetInstanceProcAddr = dld.vkGetInstanceProcAddr;
     functions.vkGetDeviceProcAddr = dld.vkGetDeviceProcAddr;
 
+    // Note: Buffer device address can cause device loss on some AMD GPUs
+    // Disable the feature on AMD to improve stability
+    const VkDriverId current_driver_id = properties.driver.driverID;
+    const bool is_amd_gpu = current_driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
+                            current_driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
+                            current_driver_id == VK_DRIVER_ID_MESA_RADV;
+    if (is_amd_gpu && features.buffer_device_address.bufferDeviceAddress) {
+        LOG_INFO(Render_Vulkan, "VK_KHR_buffer_device_address disabled on AMD GPU for stability");
+        features.buffer_device_address.bufferDeviceAddress = VK_FALSE;
+    }
+
+    VmaAllocatorCreateFlags vma_flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+    if (features.buffer_device_address.bufferDeviceAddress) {
+        vma_flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+        LOG_INFO(Render_Vulkan, "VK_KHR_buffer_device_address enabled for global memory emulation");
+    }
+
     const VmaAllocatorCreateInfo allocator_info = {
-        .flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT,
+        .flags = vma_flags,
         .physicalDevice = physical,
         .device = *logical,
         .preferredLargeHeapBlockSize = 0,
@@ -755,7 +772,7 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         .pHeapSizeLimit = nullptr,
         .pVulkanFunctions = &functions,
         .instance = instance,
-        .vulkanApiVersion = VK_API_VERSION_1_1,
+        .vulkanApiVersion = VK_API_VERSION_1_2,
         .pTypeExternalMemoryHandleTypes = nullptr,
     };
 

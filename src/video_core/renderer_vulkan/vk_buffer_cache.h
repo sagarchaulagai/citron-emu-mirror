@@ -34,6 +34,13 @@ public:
         return *buffer;
     }
 
+    /// Returns the 64-bit GPU address of this buffer (NVNbufferAddress equivalent)
+    /// This is the Vulkan equivalent of nvnBufferGetAddress() from the Nintendo NVN API
+    /// Used for global memory emulation where shaders need direct 64-bit buffer addresses
+    [[nodiscard]] VkDeviceAddress GetDeviceAddress() const noexcept {
+        return device_address;
+    }
+
     [[nodiscard]] bool IsRegionUsed(u64 offset, u64 size) const noexcept {
         return tracker.IsUsed(offset, size);
     }
@@ -60,6 +67,7 @@ private:
 
     const Device* device{};
     vk::Buffer buffer;
+    VkDeviceAddress device_address{};  // NVNbufferAddress - 64-bit GPU address for global memory
     std::vector<BufferView> views;
     VideoCommon::UsageTracker tracker;
     bool is_null{};

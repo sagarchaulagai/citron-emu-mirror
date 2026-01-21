@@ -302,6 +302,7 @@ struct DeviceDispatch : InstanceDispatch {
     PFN_vkFreeDescriptorSets vkFreeDescriptorSets{};
     PFN_vkFreeMemory vkFreeMemory{};
     PFN_vkGetBufferMemoryRequirements2 vkGetBufferMemoryRequirements2{};
+    PFN_vkGetBufferDeviceAddress vkGetBufferDeviceAddress{};  // For NVN-style global memory (NVNbufferAddress)
     PFN_vkGetDeviceQueue vkGetDeviceQueue{};
     PFN_vkGetEventStatus vkGetEventStatus{};
     PFN_vkGetFenceStatus vkGetFenceStatus{};
@@ -1040,6 +1041,15 @@ public:
                              VkQueryResultFlags flags) const noexcept {
         return dld->vkGetQueryPoolResults(handle, query_pool, first, count, data_size, data, stride,
                                           flags);
+    }
+
+    /// Returns the 64-bit GPU address of a buffer (NVNbufferAddress equivalent)
+    /// This is used for global memory emulation, matching Nintendo's nvnBufferGetAddress()
+    VkDeviceAddress GetBufferAddress(const VkBufferDeviceAddressInfo& info) const noexcept {
+        if (dld->vkGetBufferDeviceAddress) {
+            return dld->vkGetBufferDeviceAddress(handle, &info);
+        }
+        return 0;
     }
 };
 

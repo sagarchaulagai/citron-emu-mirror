@@ -31,7 +31,8 @@ VK_DEFINE_HANDLE(VmaAllocator)
 #define FOR_EACH_VK_FEATURE_1_2(FEATURE)                                                           \
     FEATURE(EXT, HostQueryReset, HOST_QUERY_RESET, host_query_reset)                               \
     FEATURE(KHR, 8BitStorage, 8BIT_STORAGE, bit8_storage)                                          \
-    FEATURE(KHR, TimelineSemaphore, TIMELINE_SEMAPHORE, timeline_semaphore)
+    FEATURE(KHR, TimelineSemaphore, TIMELINE_SEMAPHORE, timeline_semaphore)                        \
+    FEATURE(KHR, BufferDeviceAddress, BUFFER_DEVICE_ADDRESS, buffer_device_address)
 
 #define FOR_EACH_VK_FEATURE_1_3(FEATURE)                                                           \
     FEATURE(EXT, ShaderDemoteToHelperInvocation, SHADER_DEMOTE_TO_HELPER_INVOCATION,               \
@@ -554,6 +555,16 @@ public:
         return extensions.line_rasterization;
     }
 
+    /// Returns true if rectangularLines line rasterization mode is supported.
+    bool IsRectangularLinesSupported() const {
+        return extensions.line_rasterization && features.line_rasterization.rectangularLines;
+    }
+
+    /// Returns true if smoothLines line rasterization mode is supported.
+    bool IsSmoothLinesSupported() const {
+        return extensions.line_rasterization && features.line_rasterization.smoothLines;
+    }
+
     /// Returns true if the device supports VK_EXT_vertex_input_dynamic_state.
     bool IsExtVertexInputDynamicStateSupported() const {
         return extensions.vertex_input_dynamic_state;
@@ -593,6 +604,11 @@ public:
     /// Returns true if the device supports VK_KHR_fragment_shading_rate.
     bool IsKhrFragmentShadingRateSupported() const {
         return extensions.fragment_shading_rate;
+    }
+
+    /// Returns true if VK_KHR_buffer_device_address is supported.
+    bool IsKhrBufferDeviceAddressSupported() const {
+        return features.buffer_device_address.bufferDeviceAddress;
     }
 
     /// Returns the minimum supported version of SPIR-V.

@@ -69,6 +69,11 @@ vk::Buffer CreateBuffer(const Device& device, const MemoryAllocator& memory_allo
     if (device.IsExtConditionalRendering()) {
         flags |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
     }
+    // Enable buffer device address for NVN-style global memory emulation (NVNbufferAddress)
+    // This allows shaders to use 64-bit buffer addresses directly, matching Nintendo's NVN API
+    if (device.IsKhrBufferDeviceAddressSupported()) {
+        flags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    }
 
     // Optimize buffer size based on VRAM usage mode
     u64 optimized_size = size;
@@ -157,6 +162,20 @@ Buffer::Buffer(BufferCacheRuntime& runtime, DAddr cpu_addr_, u64 size_bytes_)
       buffer{CreateBuffer(*device, runtime.memory_allocator, SizeBytes())}, tracker{SizeBytes()} {
     if (runtime.device.HasDebuggingToolAttached()) {
         buffer.SetObjectNameEXT(fmt::format("Buffer 0x{:x}", CpuAddr()).c_str());
+    }
+    // Obtain 64-bit GPU address for NVN-style global memory emulation
+    // This is the equivalent of nvnBufferGetAddress() from Nintendo's NVN API
+    if (device->IsKhrBufferDeviceAddressSupported()) {
+        // Safety check: ensure buffer handle is valid before querying address
+        const VkBuffer buffer_handle = *buffer;
+        if (buffer_handle != VK_NULL_HANDLE) {
+            const VkBufferDeviceAddressInfo address_info{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                .pNext = nullptr,
+                .buffer = buffer_handle,
+            };
+            device_address = device->GetLogical().GetBufferAddress(address_info);
+        }
     }
 }
 
