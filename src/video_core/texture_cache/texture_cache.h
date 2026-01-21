@@ -4,10 +4,12 @@
 
 #pragma once
 
+#include <cstring>
 #include <unordered_set>
 #include <boost/container/small_vector.hpp>
 
 #include "common/alignment.h"
+#include "common/logging/log.h"
 #include "common/settings.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/dirty_flags.h"
@@ -1075,6 +1077,21 @@ template <typename StagingBuffer>
 void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) {
     const std::span<u8> mapped_span = staging.mapped_span;
     const GPUVAddr gpu_addr = image.gpu_addr;
+
+    // FIXED: Check if GPU memory is mapped before reading to prevent device loss
+    // This fixes Switch Sports and other games that crash due to unmapped GPU memory reads
+    // Similar to Ryujinx's GetSpanMapped() approach - gracefully handle unmapped memory
+    if (!gpu_memory->IsFullyMappedRange(gpu_addr, image.guest_size_bytes)) {
+        LOG_WARNING(HW_GPU,
+                    "Texture upload from unmapped GPU memory at 0x{:016X} (size: {} KB). "
+                    "Zeroing staging buffer and skipping upload.",
+                    gpu_addr, image.guest_size_bytes / 1024);
+        // Zero the staging buffer to ensure no garbage data is used if something reads it
+        std::memset(mapped_span.data(), 0, mapped_span.size_bytes());
+        // Skip the upload - trying to upload with invalid copy parameters can crash
+        // The image will use its previous state or be initialized to a safe default
+        return;
+    }
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
         gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),

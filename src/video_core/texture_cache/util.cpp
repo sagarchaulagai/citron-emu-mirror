@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <numeric>
 #include <optional>
 #include <span>
@@ -19,6 +20,7 @@
 #include "common/bit_util.h"
 #include "common/common_types.h"
 #include "common/div_ceil.h"
+#include "common/logging/log.h"
 #include "common/scratch_buffer.h"
 #include "common/settings.h"
 #include "video_core/compatible_formats.h"
@@ -858,7 +860,18 @@ boost::container::small_vector<BufferImageCopy, 16> UnswizzleImage(Tegra::Memory
 
     if (info.type == ImageType::Linear) {
         ASSERT(output.size_bytes() >= guest_size_bytes);
-        gpu_memory.ReadBlockUnsafe(gpu_addr, output.data(), guest_size_bytes);
+
+        // FIXED: Validate GPU memory is mapped before reading to prevent device loss
+        // This fixes Switch Sports crash - similar to Ryujinx's GetSpanMapped() approach
+        if (!gpu_memory.IsFullyMappedRange(gpu_addr, guest_size_bytes)) {
+            LOG_WARNING(HW_GPU,
+                        "Linear texture read from unmapped GPU memory at 0x{:016X} (size: {} KB). "
+                        "Zeroing texture data to prevent device loss.",
+                        gpu_addr, guest_size_bytes / 1024);
+            std::memset(output.data(), 0, guest_size_bytes);
+        } else {
+            gpu_memory.ReadBlockUnsafe(gpu_addr, output.data(), guest_size_bytes);
+        }
 
         ASSERT((info.pitch >> bpp_log2) << bpp_log2 == info.pitch);
         return {{
