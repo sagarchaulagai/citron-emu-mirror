@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 
+#include "common/logging/log.h"
 #include "common/scratch_buffer.h"
 #include "common/settings.h"
 #include "video_core/host1x/codecs/h264.h"
@@ -32,12 +33,27 @@ H264::~H264() = default;
 std::span<const u8> H264::ComposeFrame(const Host1x::NvdecCommon::NvdecRegisters& state,
                                        size_t* out_configuration_size, bool is_first_frame) {
     H264DecoderContext context;
+
+    // Validate picture info memory is mapped before reading
+    if (!host1x.GMMU().IsFullyMappedRange(state.picture_info_offset, sizeof(H264DecoderContext))) {
+        LOG_WARNING(HW_GPU, "H264 picture info at unmapped GPU memory 0x{:016X}",
+                    state.picture_info_offset);
+        *out_configuration_size = 0;
+        return {};
+    }
     host1x.GMMU().ReadBlock(state.picture_info_offset, &context, sizeof(H264DecoderContext));
 
     const s64 frame_number = context.h264_parameter_set.frame_number.Value();
     if (!is_first_frame && frame_number != 0) {
         frame.resize_destructive(context.stream_len);
-        host1x.GMMU().ReadBlock(state.frame_bitstream_offset, frame.data(), frame.size());
+        // Validate bitstream memory is mapped before reading
+        if (!host1x.GMMU().IsFullyMappedRange(state.frame_bitstream_offset, frame.size())) {
+            LOG_WARNING(HW_GPU, "H264 bitstream at unmapped GPU memory 0x{:016X} (size: {} KB)",
+                        state.frame_bitstream_offset, frame.size() / 1024);
+            std::memset(frame.data(), 0, frame.size());
+        } else {
+            host1x.GMMU().ReadBlock(state.frame_bitstream_offset, frame.data(), frame.size());
+        }
         *out_configuration_size = 0;
         return frame;
     }
@@ -158,8 +174,16 @@ std::span<const u8> H264::ComposeFrame(const Host1x::NvdecCommon::NvdecRegisters
     std::memcpy(frame.data(), encoded_header.data(), encoded_header.size());
 
     *out_configuration_size = encoded_header.size();
-    host1x.GMMU().ReadBlock(state.frame_bitstream_offset, frame.data() + encoded_header.size(),
-                            context.stream_len);
+
+    // Validate bitstream memory is mapped before reading
+    if (!host1x.GMMU().IsFullyMappedRange(state.frame_bitstream_offset, context.stream_len)) {
+        LOG_WARNING(HW_GPU, "H264 bitstream at unmapped GPU memory 0x{:016X} (size: {} KB)",
+                    state.frame_bitstream_offset, context.stream_len / 1024);
+        std::memset(frame.data() + encoded_header.size(), 0, context.stream_len);
+    } else {
+        host1x.GMMU().ReadBlock(state.frame_bitstream_offset, frame.data() + encoded_header.size(),
+                                context.stream_len);
+    }
 
     return frame;
 }
