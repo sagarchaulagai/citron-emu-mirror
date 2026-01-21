@@ -98,6 +98,17 @@ void Scheduler::RequestRenderpass(const Framebuffer* framebuffer) {
         render_area.height == state.render_area.height) {
         return;
     }
+
+    // CRITICAL: Before transitioning to a new render pass, we must close any queries
+    // that were started outside the current render pass context. Vulkan requires that
+    // if vkCmdBeginQuery was called outside a render pass, vkCmdEndQuery must also
+    // be called outside that render pass.
+    if (query_cache && !state.renderpass) {
+        // We're transitioning from outside render pass to inside
+        // Close any queries that were started outside
+        query_cache->NotifySegment(false);
+    }
+
     EndRenderPass();
     state.renderpass = renderpass;
     state.framebuffer = framebuffer_handle;
@@ -122,6 +133,7 @@ void Scheduler::RequestRenderpass(const Framebuffer* framebuffer) {
     num_renderpass_images = framebuffer->NumImages();
     renderpass_images = framebuffer->Images();
     renderpass_image_ranges = framebuffer->ImageRanges();
+    // Note: Queries will be started by the next draw call via NotifySegment(true) in PrepareDraw
 }
 
 void Scheduler::RequestOutsideRenderPassOperationContext() {
@@ -279,24 +291,20 @@ void Scheduler::InvalidateState() {
 }
 
 void Scheduler::EndPendingOperations() {
-#if ANDROID
-    if (Settings::IsGPULevelHigh()) {
-        // This is problematic on Android, disable on GPU Normal and Low.
-        // query_cache->DisableStreams();
-    }
-#else
-    // query_cache->DisableStreams();
-#endif
-    if (Settings::IsGPULevelNormal()) {
-        // Skip query cache operations for Low accuracy
-        query_cache->NotifySegment(false);
-    }
+    // EndRenderPass now handles closing queries before ending the render pass
+    // This ensures queries started inside a render pass are properly ended
     EndRenderPass();
 }
 
 void Scheduler::EndRenderPass() {
     if (!state.renderpass) {
         return;
+    }
+    // CRITICAL: End any active queries before ending the render pass
+    // Queries started inside a render pass must be ended before vkCmdEndRenderPass
+    // This prevents validation errors about queries started in subpass but not ended
+    if (query_cache) {
+        query_cache->NotifySegment(false);
     }
     Record([num_images = num_renderpass_images, images = renderpass_images,
             ranges = renderpass_image_ranges](vk::CommandBuffer cmdbuf) {
