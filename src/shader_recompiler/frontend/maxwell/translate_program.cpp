@@ -110,6 +110,7 @@ void AddNVNStorageBuffers(IR::Program& program) {
         throw InvalidArgument("Invalid stage {}", program.stage);
     }()};
     auto& descs{program.info.storage_buffers_descriptors};
+
     for (u32 index = 0; index < num_buffers; ++index) {
         if (!program.info.nvn_buffer_used[index]) {
             continue;

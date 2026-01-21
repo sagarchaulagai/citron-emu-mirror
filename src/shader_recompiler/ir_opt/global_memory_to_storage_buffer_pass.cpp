@@ -522,13 +522,25 @@ void Replace(IR::Block& block, IR::Inst& inst, const IR::U32& storage_index,
 
 void GlobalMemoryToStorageBufferPass(IR::Program& program, const HostTranslateInfo& host_info) {
     StorageInfo info;
+    size_t total_global_memory_insts{0};
     for (IR::Block* const block : program.post_order_blocks) {
         for (IR::Inst& inst : block->Instructions()) {
             if (!IsGlobalMemory(inst)) {
                 continue;
             }
+            ++total_global_memory_insts;
             CollectStorageBuffers(*block, inst, info);
         }
+    }
+    // Log if some global memory instructions couldn't be tracked
+    // NOTE: Previously tried enabling all NVN buffers as fallback when tracking failed,
+    // but this caused crashes due to shader code accessing potentially invalid buffers.
+    // Now we just log a warning - untracked global memory ops will use default behavior.
+    const size_t tracked_insts{info.to_replace.size()};
+    if (total_global_memory_insts > 0 && tracked_insts < total_global_memory_insts) {
+        LOG_WARNING(Shader, "Global memory tracking: {} of {} instructions tracked. "
+                           "Untracked ops may cause rendering issues.",
+                    tracked_insts, total_global_memory_insts);
     }
     for (const StorageBufferAddr& storage_buffer : info.set) {
         program.info.storage_buffers_descriptors.push_back({
